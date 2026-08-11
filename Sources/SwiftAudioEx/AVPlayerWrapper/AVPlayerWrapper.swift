@@ -305,6 +305,27 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
                     )
                     self.item = item;
                     item.preferredForwardBufferDuration = self.bufferDuration
+                    // crit patch (loopback fast-start v2): EVERY loopback load
+                    // starts immediately — offline tokens are disk-backed, and
+                    // stream tokens serve their open probes from the JS-side
+                    // RAM/disk caches; the stall-heuristic hold-off was pure
+                    // dead air on a chapter change. Stream tokens re-arm stall
+                    // protection once audio starts (see audioDidStart) so
+                    // MID-play rebuffering keeps AVPlayer's pacing (the
+                    // f7e1e9f lesson about stripping stream stall protection).
+                    // The forward-buffer CAP is the other half: against a
+                    // disk-fast loopback source AVPlayer's automatic policy
+                    // buffers the WHOLE chapter, which pumps ~30 MB through
+                    // the JS read+decrypt loop per chapter and starves skip
+                    // taps for ~700 ms at a time. Two minutes of audio is
+                    // ~2 MB at the delivery bitrate — plenty, and the loop
+                    // goes quiet seconds after a chapter starts.
+                    if (self.url?.host == "127.0.0.1") {
+                        item.preferredForwardBufferDuration = 120
+                        self.avPlayer.automaticallyWaitsToMinimizeStalling = false
+                    } else {
+                        self.avPlayer.automaticallyWaitsToMinimizeStalling = true
+                    }
                     self.avPlayer.replaceCurrentItem(with: item)
                     self.startObservingAVPlayer(item: item)
                     self.applyAVPlayerRate()
