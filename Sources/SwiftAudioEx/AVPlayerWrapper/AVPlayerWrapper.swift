@@ -326,14 +326,24 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
                     } else {
                         self.avPlayer.automaticallyWaitsToMinimizeStalling = true
                     }
+                    // crit patch (pre-seek before attach): the deferred
+                    // initialTime used to be applied AFTER replaceCurrentItem,
+                    // so AVPlayer prepared the item twice — once at zero, then
+                    // again at the target — the measured ~1.4 s floor on every
+                    // cross-chapter skip. Seeking the still-UNATTACHED item is
+                    // legal (AVPlayerItem.seek), so the attach prepares ONCE,
+                    // directly at the target. The delegate callback matches
+                    // what wrapper.seek(to:) would have fired.
+                    if let initialTime = self.timeToSeekToAfterLoading {
+                        self.timeToSeekToAfterLoading = nil
+                        let time = CMTimeMakeWithSeconds(initialTime, preferredTimescale: 1000)
+                        item.seek(to: time, toleranceBefore: CMTime.zero, toleranceAfter: CMTime.zero) { finished in
+                            self.delegate?.AVWrapper(seekTo: Double(initialTime), didFinish: finished)
+                        }
+                    }
                     self.avPlayer.replaceCurrentItem(with: item)
                     self.startObservingAVPlayer(item: item)
                     self.applyAVPlayerRate()
-                    
-                    if let initialTime = self.timeToSeekToAfterLoading {
-                        self.timeToSeekToAfterLoading = nil
-                        self.seek(to: initialTime)
-                    }
                 }
             })
         }
