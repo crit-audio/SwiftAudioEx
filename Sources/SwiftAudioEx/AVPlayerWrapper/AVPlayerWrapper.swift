@@ -502,6 +502,12 @@ extension AVPlayerWrapper: AVPlayerTimeObserverDelegate {
     // MARK: - AVPlayerTimeObserverDelegate
     
     func audioDidStart() {
+        // crit patch (loopback fast-start restore): stream loopback tokens
+        // (everything but ".offline.") get stall protection back the moment
+        // audio is actually rolling — fast start applies only to the load.
+        if self.url?.host == "127.0.0.1" && self.url?.path.contains(".offline.") != true {
+            avPlayer.automaticallyWaitsToMinimizeStalling = true
+        }
         state = .playing
     }
     
