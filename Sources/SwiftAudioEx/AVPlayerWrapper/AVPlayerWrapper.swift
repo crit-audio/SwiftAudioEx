@@ -243,6 +243,14 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             pendingAsset.loadValuesAsynchronously(forKeys: metdataKeys, completionHandler: { [weak self] in
                 guard let self = self else { return }
                 if (pendingAsset != self.asset) { return; }
+                // crit patch (boot deadlock): cancelLoading invokes this completion
+                // SYNCHRONOUSLY on the cancelling thread; reading an unloaded property
+                // below then blocks forever in ObtainPropertySync (dispatch_group_wait)
+                // and deadlocks the RN TurboModule queue. Bail unless every requested
+                // key actually loaded.
+                for key in metdataKeys {
+                    if (pendingAsset.statusOfValue(forKey: key, error: nil) != .loaded) { return }
+                }
                 
                 let commonData = pendingAsset.commonMetadata
                 if (!commonData.isEmpty) {
