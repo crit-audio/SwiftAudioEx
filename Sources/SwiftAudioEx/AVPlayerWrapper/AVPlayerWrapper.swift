@@ -512,10 +512,19 @@ extension AVPlayerWrapper: AVPlayerTimeObserverDelegate {
     // MARK: - AVPlayerTimeObserverDelegate
     
     func audioDidStart() {
-        // crit patch (loopback fast-start restore): stream loopback tokens
-        // (everything but ".offline.") get stall protection back the moment
-        // audio is actually rolling — fast start applies only to the load.
-        if self.url?.host == "127.0.0.1" && self.url?.path.contains(".offline.") != true {
+        // crit patch (loopback fast-start restore): EVERY loopback token gets
+        // stall protection back the moment audio is actually rolling; fast
+        // start applies only to the load. Offline tokens used to be left
+        // with protection OFF for the whole chapter on the theory that a
+        // disk-backed source cannot stall. It can: the bytes still cross the
+        // JS decrypt loop and a TCP socket, and with protection off any
+        // underrun drops the rate to 0, which the `.paused` branch above
+        // reads as an external pause (currentTime > 0) and clears
+        // playWhenReady. The listener saw the Play button minutes into a
+        // downloaded book with no error (Jason, build 63, 2026-09-13).
+        // Re-armed, an underrun is `.waitingToPlayAtSpecifiedRate`
+        // (buffering) and AVPlayer resumes on its own.
+        if self.url?.host == "127.0.0.1" {
             avPlayer.automaticallyWaitsToMinimizeStalling = true
         }
         state = .playing
