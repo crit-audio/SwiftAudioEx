@@ -464,6 +464,22 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
 }
 
+extension AVPlayerWrapper {
+    /// crit patch: playback stopped INSIDE the current item: past its start and more than half a second before
+    /// where it ends (the shorter of the item's and the asset's duration). Nearer the end,
+    /// AVPlayerItemDidPlayToEndTime is about to advance the queue. An unknown duration counts as not inside,
+    /// as upstream's `currentTime < duration` did.
+    private var stoppedInsideItem: Bool {
+        // currentTime first: `duration` reads the asset, which can block while it is still loading.
+        guard self.currentTime > 0 else { return false }
+        var end = self.duration
+        if let item = currentItem?.duration.seconds, !item.isNaN, item > 0 {
+            end = end > 0 ? min(end, item) : item
+        }
+        return end > 0 && self.currentTime < end - 0.5
+    }
+}
+
 extension AVPlayerWrapper: AVPlayerObserverDelegate {
     
     // MARK: - AVPlayerObserverDelegate
@@ -478,7 +494,11 @@ extension AVPlayerWrapper: AVPlayerObserverDelegate {
                 // Playback may have become paused externally for example due to a bluetooth device disconnecting:
                 if (self.playWhenReady) {
                     // Only if we are not on the boundaries of the track, otherwise itemDidPlayToEndTime will handle it instead.
-                    if (self.currentTime > 0 && self.currentTime < self.duration) {
+                    // crit patch (end of item): the end test allows half a second. An item can stop a
+                    // few milliseconds short of its header duration, and a strict `<` then clears the intent at a
+                    // chapter end, so the next chapter attaches paused (suspected for Swen's locked-phone pause at a
+                    // chapter end, iOS 27, 2026-10-26; read from the code, not reproduced).
+                    if (self.stoppedInsideItem) {
                         self.playWhenReady = false;
                     }
                 } else {
